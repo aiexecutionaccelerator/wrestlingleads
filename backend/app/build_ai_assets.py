@@ -272,15 +272,14 @@ def build_all(qualified_path: Path | None = None) -> dict:
 
     reference_path = save_reference(df)
 
-    hubspot_config = build_hubspot_config()
-    (CONFIG_DIR / "hubspot_field_map.json").write_text(
-        json.dumps(hubspot_config, indent=2), encoding="utf-8"
-    )
+    # Bootstrap templates only — never overwrite live field maps (they hold real Wufoo field IDs).
+    hubspot_path = CONFIG_DIR / "hubspot_field_map.json"
+    if not hubspot_path.exists():
+        hubspot_path.write_text(json.dumps(build_hubspot_config(), indent=2), encoding="utf-8")
 
-    wufoo_config = build_wufoo_config()
-    (CONFIG_DIR / "wufoo_field_map.json").write_text(
-        json.dumps(wufoo_config, indent=2), encoding="utf-8"
-    )
+    wufoo_path = CONFIG_DIR / "wufoo_field_map.json"
+    if not wufoo_path.exists():
+        wufoo_path.write_text(json.dumps(build_wufoo_config(), indent=2), encoding="utf-8")
 
     manifest = build_ai_manifest(df, metrics, few_shot, reference_path)
     (MODELS_DIR / "ai_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

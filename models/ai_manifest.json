@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-28T12:48:41.072781+00:00",
+  "generated_at": "2026-07-23T15:15:49.649908+00:00",
   "qualified_rows": 2144,
   "artifacts": {
     "qualified_data": "data\\qualified.xlsx",
@@ -8,6 +8,7 @@
     "metrics": "models\\metrics.json",
     "scoring_config": "models/scoring_config.json",
     "tier_calibration": "models/tier_calibration.json",
+    "reference_scores": "models/reference_scores.parquet",
     "hubspot_config": "config/hubspot_field_map.json",
     "wufoo_config": "config/wufoo_field_map.json"
   },
@@ -21,13 +22,13 @@
   "model_metrics": {
     "rows": 2144,
     "positive_rate": 0.25093283582089554,
-    "accuracy": 0.6596736596736597,
-    "precision": 0.3680555555555556,
-    "recall": 0.49074074074074076,
-    "f1": 0.42063492063492064,
-    "roc_auc": 0.6498500057690089,
-    "hot_tier_precision": 0.3076923076923077,
-    "hot_tier_recall": 0.07407407407407407,
+    "accuracy": 0.6573426573426573,
+    "precision": 0.35555555555555557,
+    "recall": 0.4444444444444444,
+    "f1": 0.3950617283950617,
+    "roc_auc": 0.6541190723433714,
+    "hot_tier_precision": 0.43478260869565216,
+    "hot_tier_recall": 0.09259259259259259,
     "feature_columns": [
       "Job Title",
       "Job function",

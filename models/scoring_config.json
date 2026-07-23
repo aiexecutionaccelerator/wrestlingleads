@@ -1,9 +1,19 @@
 {
-  "tiers": {
-    "Hot": 72,
-    "Warm": 45,
-    "Cold": 20
+  "weights": {
+    "ml": 0.4,
+    "llm": 0.4,
+    "hubspot_10pt": 0.1,
+    "rules": 0.1
   },
-  "coaching_score_boost": 5,
-  "icp_llm_min": 72
+  "tiers": {
+    "Hot": 68,
+    "Warm": 42,
+    "Cold": 18
+  },
+  "llm_provider": "deepseek",
+  "llm_model_env": "DEEPSEEK_MODEL",
+  "positive_lifecycle_stages": [
+    "Customer",
+    "Subscriber"
+  ]
 }
