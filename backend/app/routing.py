@@ -12,6 +12,7 @@ from .features import (
     _safe_str,
     has_coaching_signals,
     is_high_investment_level,
+    is_low_investment_level,
     is_near_term_deadline,
     is_parent_icp_buyer,
     is_sparse_subscriber,
@@ -109,6 +110,8 @@ def is_west_coast(row: pd.Series | dict[str, Any]) -> bool:
 
 def _gene_urgency_signals(row: pd.Series | dict[str, Any]) -> bool:
     """Gene urgent queue: parent buyers, real urgency, or serious mental struggle — not budget self-signups."""
+    if is_low_investment_level(row) and not is_near_term_deadline(row):
+        return False
     if is_parent_icp_buyer(row):
         return True
     if is_near_term_deadline(row):

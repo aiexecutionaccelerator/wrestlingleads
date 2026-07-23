@@ -38,6 +38,10 @@ score 15-25 maximum. Do not infer intent from lifecycle stage alone.
 Leads that closely match the ICP reference examples (especially the labeled archetype) should score in the 85-95 range.
 Leads with clear 1-on-1 coaching intent but fewer details: 72-85. Reserve below 50 for weak fit or no coaching intent.
 
+Weigh commitment signals: a lead who selected a low-cost / "Getting Started" / limited-contact investment level,
+or has no deadline for their goal, is a weaker buyer — cap such leads below 72 unless the rest of the profile shows
+exceptional urgency (e.g. a near-term competition deadline or a detailed, specific message).
+
 Return ONLY valid JSON with this shape:
 {{
   "score": <number 0-100>,

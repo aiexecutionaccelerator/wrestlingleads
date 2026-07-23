@@ -46,6 +46,9 @@ LOW_INVESTMENT_MARKERS = (
 )
 
 
+PLACEHOLDER_TEXT_VALUES = frozenset({"n/a", "na", "none", "no", "nothing", "-", "."})
+
+
 def _safe_str(value: object) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
@@ -54,6 +57,12 @@ def _safe_str(value: object) -> str:
 
 def _has_value(value: object) -> bool:
     return bool(_safe_str(value))
+
+
+def _meaningful_text(value: object) -> str:
+    """Free-text value with 'N/a'-style placeholders treated as empty."""
+    text = _safe_str(value)
+    return "" if text.lower() in PLACEHOLDER_TEXT_VALUES else text
 
 
 def _normalize_hubspot_score(value: object) -> float:
@@ -99,9 +108,11 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     features["has_phone"] = (
         df["Phone Number"].apply(_has_value).astype(int) if "Phone Number" in df.columns else 0
     )
-    features["has_message"] = df["Message"].apply(_has_value).astype(int) if "Message" in df.columns else 0
+    features["has_message"] = (
+        df["Message"].apply(lambda v: bool(_meaningful_text(v))).astype(int) if "Message" in df.columns else 0
+    )
     features["message_length"] = (
-        df["Message"].apply(lambda v: len(_safe_str(v))) if "Message" in df.columns else 0
+        df["Message"].apply(lambda v: len(_meaningful_text(v))) if "Message" in df.columns else 0
     )
 
     return features
@@ -116,7 +127,7 @@ def has_name(row: pd.Series | dict) -> bool:
 def has_coaching_signals(row: pd.Series | dict) -> bool:
     """True when lead has data indicating 1-on-1 coaching interest (not email-only)."""
     get = row.get if isinstance(row, dict) else row.get
-    if _has_value(get("Message", "")):
+    if _meaningful_text(get("Message", "")):
         return True
     if _has_value(get("Job Title", "")):
         return True
@@ -277,11 +288,15 @@ def build_text_bundle(row: pd.Series) -> str:
         ("Membership Notes", "Notes"),
         ("Job Title", "Buyer type"),
         ("Relationship Status", "Readiness"),
+        ("Deadline for Goal", "Deadline"),
+        ("Investment Level", "Investment level"),
         ("Years experience", "Experience"),
         ("Wrestler's Grade", "Grade"),
     ]
     for col, label in field_labels:
         value = _safe_str(row.get(col, ""))
+        if col == "Message":
+            value = _meaningful_text(value)
         if value:
             parts.append(f"{label}: {value}")
     return "\n".join(parts)
@@ -293,7 +308,13 @@ def heuristic_text_score(row: pd.Series) -> tuple[float, list[str], list[str]]:
         result = empty_profile_text_result()
         return result["score"], result["reasons"], result["red_flags"]
 
-    text = build_text_bundle(row).lower()
+    # Skip the investment-plan line: its marketing copy ("mindset skills") would
+    # false-trigger the mental-pain patterns; investment is scored structurally below.
+    text = "\n".join(
+        line
+        for line in build_text_bundle(row).lower().splitlines()
+        if not line.startswith("investment level:")
+    )
     score = 42.0
     reasons: list[str] = []
     red_flags: list[str] = []
