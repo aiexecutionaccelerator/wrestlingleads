@@ -42,6 +42,11 @@ Weigh commitment signals: a lead who selected a low-cost / "Getting Started" / l
 or has no deadline for their goal, is a weaker buyer — cap such leads below 72 unless the rest of the profile shows
 exceptional urgency (e.g. a near-term competition deadline or a detailed, specific message).
 
+Distinguish severity from intent: "Ready to start now" and "asap" are intent clicks nearly every submitter selects —
+they do not indicate a serious case. A "mental edge (no major issues)" inquiry, or a wrestler new to the sport
+(0-1 year) with a generic goal, is an average lead: score 45-65 unless there is explicit mental struggle,
+competitive stakes (state/national level), or a high-performance investment tier.
+
 Return ONLY valid JSON with this shape:
 {{
   "score": <number 0-100>,

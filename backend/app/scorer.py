@@ -21,6 +21,7 @@ from .features import (
     is_long_deadline,
     is_low_investment_level,
     is_near_term_deadline,
+    is_new_to_wrestling,
     is_parent_icp_buyer,
     is_soft_mental_edge_inquiry,
     is_sparse_subscriber,
@@ -106,6 +107,10 @@ def compute_rule_adjustments(row: pd.Series) -> tuple[float, list[str], list[str
     elif is_low_investment_level(row):
         score -= 14
         reasons.append("Budget / starter plan selected")
+
+    if is_new_to_wrestling(row):
+        score -= 8
+        reasons.append("New to wrestling (0-1 year)")
 
     if "Coach Seeking Team Mindset Training" in job_title:
         flags.append("Coach/team track — verify product fit")

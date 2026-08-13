@@ -188,6 +188,12 @@ def is_high_investment_level(row: pd.Series | dict) -> bool:
     )
 
 
+def is_new_to_wrestling(row: pd.Series | dict) -> bool:
+    get = row.get if isinstance(row, dict) else row.get
+    experience = _safe_str(get("Years experience", "")).lower()
+    return "0-1" in experience or "new to wrestling" in experience
+
+
 def is_parent_icp_buyer(row: pd.Series | dict) -> bool:
     get = row.get if isinstance(row, dict) else row.get
     return "Parent Seeking 1-1" in _safe_str(get("Job Title", ""))
