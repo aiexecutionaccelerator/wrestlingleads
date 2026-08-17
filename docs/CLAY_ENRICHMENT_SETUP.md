@@ -1,8 +1,28 @@
-# Clay Lead Enrichment — Setup
+# Lead Enrichment — Setup
 
-Flow: Wufoo → backend (score + route) → **Clay** (webhook table, AI enrichment) → backend callback → n8n (email + SMS brief to rep) and the lead card in the app.
+Two providers, selected by `ENRICHMENT_PROVIDER` (`claude` | `clay` | `off`; default: `claude` if `ANTHROPIC_API_KEY` is set, else `clay` if `CLAY_WEBHOOK_URL` is set, else off). Automation-bucket leads are never enriched.
 
-Automation-bucket leads are never sent to Clay (no credits spent on nurture leads).
+## Provider A (recommended): Claude API — no Clay account needed
+
+`backend/app/enrichment.py`. After routing, a background thread makes one Claude call (`claude-opus-5`, web search + web fetch server tools) that: works out parent vs wrestler from the form, searches TrackWrestling for the record / weight / team, looks up the club, and writes a 3-line pre-call brief. Result is stored on the lead (lead card) and forwarded to `N8N_ENRICHMENT_WEBHOOK_URL` for the rep's email/SMS.
+
+Railway env vars:
+
+| Var | Value |
+|---|---|
+| `ANTHROPIC_API_KEY` | from console.anthropic.com |
+| `N8N_ENRICHMENT_WEBHOOK_URL` | production URL of the n8n workflow imported from `docs/n8n_enrichment_workflow.json` |
+| `CLAY_CALLBACK_SECRET` | any long string — also protects the manual `/webhooks/enrichment/run` endpoint |
+| `ENRICHMENT_MODEL` (optional) | default `claude-opus-5`; `claude-sonnet-5` is cheaper |
+| `ENRICHMENT_MAX_SEARCHES` / `ENRICHMENT_MAX_FETCHES` (optional) | default 8 each — cost guardrail |
+
+Cost: web search is $10 per 1,000 searches plus tokens — roughly $0.15–0.25 per lead on Opus.
+
+Check: `GET /webhooks/enrichment/status`. Manually enrich an existing lead: `POST /webhooks/enrichment/run?email=<lead email>` with header `X-Clay-Secret: <CLAY_CALLBACK_SECRET>` (returns the brief; add `&wait=false` to run in the background).
+
+## Provider B: Clay
+
+Flow: Wufoo → backend (score + route) → **Clay** (webhook table, AI enrichment) → backend callback → n8n (email + SMS brief to rep) and the lead card in the app. Set `ENRICHMENT_PROVIDER=clay` (or leave `ANTHROPIC_API_KEY` unset).
 
 ## Railway env vars
 
