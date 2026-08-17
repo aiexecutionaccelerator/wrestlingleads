@@ -48,13 +48,13 @@ You receive one lead's form submission. Do the following, using web search and p
 
 1. Determine who is who. The form's Name field is sometimes the parent and sometimes the wrestler.
    - Buyer type "Wrestler Seeking..." → the name is the wrestler.
-   - Buyer type "Parent..." → the name is the parent, unless the message clearly uses that same first name for the athlete (e.g. Name "Jessie Murphy" + message "Jessie wrestled for one year..." → Jessie is the wrestler). Also extract any child's name given in the message. If the wrestler's name cannot be determined, leave wrestler_name empty — do not guess.
+   - Buyer type "Parent..." → the name is the parent, unless the message clearly uses that same first name for the athlete (e.g. Name "Jessie Murphy" + message "Jessie wrestled for one year..." → Jessie is the wrestler). Also extract any child's name given in the message, and use the email address as a clue to the parent's name (e.g. "ronandpamfollett@..." → parents are likely Ron and Pam Follett — report as "possibly Ron and Pam Follett"). If the wrestler's name cannot be determined, leave wrestler_name empty — do not guess.
 2. If you have a wrestler name: search TrackWrestling.com (fallback: FloWrestling, school athletics pages) for that wrestler in the given state and grade level. Report the most recent season's win-loss record, weight class, team/school, and the source URL. Only report a match if name AND state agree — never guess between same-name wrestlers. Youth and middle-school coverage is thin; "not found" is a normal outcome.
 3. If you have a wrestler name: identify their club/team via USA Wrestling club listings, TrackWrestling team pages, or club rosters. Report a club only if the wrestler's name appears on that club's roster or results.
-4. Write a 3-line pre-call brief for the rep, plain text, no markdown:
+4. Write a 3-line pre-call brief for the rep, plain text, no markdown. Each line is ONE short sentence (max ~30 words):
    Line 1: wrestler name (or "wrestler name not on form — ask on call"), grade, experience, record/weight/team if found, otherwise "no TrackWrestling record found".
    Line 2: club if found; otherwise the parent's own words from the form message.
-   Line 3: reason for inquiry and goal, plus anything from your research that changes how the rep should open the call.
+   Line 3: reason for inquiry and goal, plus the single most useful opening question or fact for the call.
    Be factual. Mark low-confidence facts as "possibly". Never state something as fact that you did not verify on a page.
 
 Budget: use at most a handful of searches. Stop as soon as you have an answer or it is clear nothing reliable exists.
@@ -89,6 +89,8 @@ def _lead_description(row: pd.Series | dict[str, Any], rep: dict[str, Any] | Non
     last = _safe_str(get("Last Name", ""))
     fields = [
         ("Name on form", f"{first} {last}".strip()),
+        ("Email on form", _safe_str(get("Email", ""))),
+        ("Phone on form", _safe_str(get("Phone Number", ""))),
         ("Buyer type", _safe_str(get("Job Title", ""))),
         ("State", _safe_str(get("State/Region", ""))),
         ("Wrestler's grade", _safe_str(get("Wrestler's Grade", ""))),
