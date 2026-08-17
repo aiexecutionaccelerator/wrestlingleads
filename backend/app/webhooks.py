@@ -88,24 +88,24 @@ async def _score_wufoo_lead(
 @router.get("/enrichment/status")
 def enrichment_status() -> dict[str, Any]:
     """Diagnostics for Claude lead enrichment (does not expose secrets)."""
-    from .enrichment import ENRICHMENT_MODEL, enrichment_enabled, enrichment_n8n_url, enrichment_secret
+    from .enrichment import ENRICHMENT_MODEL, TIMEOUT_SECONDS, enrichment_enabled, enrichment_secret
 
     return {
         "enabled": enrichment_enabled(),
         "model": ENRICHMENT_MODEL,
+        "timeout_seconds": TIMEOUT_SECONDS,
         "run_endpoint": "/webhooks/enrichment/run?email=<lead email>",
         "run_secret_configured": bool(enrichment_secret()),
-        "n8n_enrichment_webhook_configured": bool(enrichment_n8n_url()),
     }
 
 
 @router.post("/enrichment/run")
-def enrichment_run(request: Request, email: str, wait: bool = True) -> dict[str, Any]:
+def enrichment_run(request: Request, email: str) -> dict[str, Any]:
     """
-    Manually enrich a lead already in the cache (for testing / re-runs).
-    Secured by ENRICHMENT_SECRET (header X-Enrichment-Secret). ?wait=false returns immediately.
+    Manually enrich a lead already in the cache and return the brief (for testing / re-runs).
+    Secured by ENRICHMENT_SECRET (header X-Enrichment-Secret). Does not re-send notifications.
     """
-    from .enrichment import enrich_lead, enrichment_enabled, enrichment_secret, start_enrichment
+    from .enrichment import enrich_lead, enrichment_enabled, enrichment_secret
     from .routing_config import load_routing_config
 
     secret = enrichment_secret()
@@ -125,9 +125,6 @@ def enrichment_run(request: Request, email: str, wait: bool = True) -> dict[str,
         (r for r in config.get("reps", []) if _safe_str(r.get("email")) == _safe_str(row.get("Assigned Email"))),
         None,
     )
-    if not wait:
-        start_enrichment(row, rep)
-        return {"success": True, "email": email, "queued": True}
     try:
         outcome = enrich_lead(row, rep)
     except Exception as exc:

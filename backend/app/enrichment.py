@@ -1,6 +1,8 @@
 """Lead enrichment with Claude + web search: wrestler record, club, and a pre-call brief for the rep.
 
-Enabled when ANTHROPIC_API_KEY is set (disable with ENRICHMENT_PROVIDER=off).
+Runs synchronously inside route_and_notify (bounded by ENRICHMENT_TIMEOUT_SECONDS) so the brief is
+included in the single assignment email/SMS/n8n payload. Enabled when ANTHROPIC_API_KEY is set
+(disable with ENRICHMENT_PROVIDER=off).
 """
 
 from __future__ import annotations
@@ -9,22 +11,19 @@ import json
 import logging
 import os
 import re
-import threading
 from datetime import UTC, datetime
-from html import escape
 from typing import Any
 
-import httpx
 import pandas as pd
 
 from .features import _safe_str
-from .phone_utils import format_us_e164
 
 logger = logging.getLogger(__name__)
 
 ENRICHMENT_MODEL = os.getenv("ENRICHMENT_MODEL", "claude-opus-5")
 MAX_SEARCHES = int(os.getenv("ENRICHMENT_MAX_SEARCHES", "8"))
 MAX_FETCHES = int(os.getenv("ENRICHMENT_MAX_FETCHES", "8"))
+TIMEOUT_SECONDS = float(os.getenv("ENRICHMENT_TIMEOUT_SECONDS", "150"))
 
 ENRICHMENT_FIELDS: tuple[tuple[str, str], ...] = (
     # (result key, cache column)
@@ -73,10 +72,6 @@ wrestler_name, parent_name, tw_record, tw_weight_class, tw_team, tw_source_url, 
 
 def enrichment_secret() -> str:
     return os.getenv("ENRICHMENT_SECRET", "").strip() or os.getenv("CLAY_CALLBACK_SECRET", "").strip()
-
-
-def enrichment_n8n_url() -> str:
-    return os.getenv("N8N_ENRICHMENT_WEBHOOK_URL", "").strip()
 
 
 def enrichment_enabled() -> bool:
@@ -140,7 +135,7 @@ def research_lead_with_claude(
     if client is None:
         import anthropic
 
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(timeout=TIMEOUT_SECONDS, max_retries=1)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": _lead_description(row, rep)}]
     response = None
@@ -188,160 +183,42 @@ def result_to_columns(result: dict[str, Any]) -> dict[str, str]:
     return values
 
 
-def _brief_lines(lead: pd.Series | dict[str, Any], enrichment: dict[str, str]) -> list[str]:
-    get = lead.get if isinstance(lead, dict) else lead.get
-    lines: list[str] = []
-    wrestler = enrichment.get("Wrestler Name") or "Wrestler (name not on form)"
-    detail = " · ".join(
-        p for p in (_safe_str(get("Wrestler's Grade", "")), _safe_str(get("Years experience", ""))) if p
-    )
-    lines.append(f"{wrestler}" + (f" — {detail}" if detail else ""))
-    record = enrichment.get("TW Record")
-    if record:
-        rec = f"TrackWrestling: {record}"
-        if enrichment.get("TW Weight Class"):
-            rec += f" @ {enrichment['TW Weight Class']}"
-        if enrichment.get("TW Team"):
-            rec += f" ({enrichment['TW Team']})"
-        lines.append(rec)
-    else:
-        lines.append("TrackWrestling: no record found")
-    if enrichment.get("Club Affiliation"):
-        lines.append(f"Club: {enrichment['Club Affiliation']}")
-    if enrichment.get("Parent LinkedIn"):
-        parent = enrichment.get("Parent Name") or "Parent"
-        headline = enrichment.get("Parent Headline")
-        lines.append(f"{parent}: {headline + ' — ' if headline else ''}{enrichment['Parent LinkedIn']}")
-    if enrichment.get("Enrichment Confidence"):
-        lines.append(f"Confidence: {enrichment['Enrichment Confidence']}")
-    return lines
-
-
-def build_enrichment_n8n_payload(
-    lead: pd.Series | dict[str, Any],
-    rep: dict[str, Any] | None,
-    enrichment: dict[str, str],
-) -> dict[str, Any]:
-    get = lead.get if isinstance(lead, dict) else lead.get
-    first = _safe_str(get("First Name", ""))
-    last = _safe_str(get("Last Name", ""))
-    name = f"{first} {last}".strip() or _safe_str(get("Email", ""))
-    rep = rep or {}
-    rep_phone = _safe_str(rep.get("phone", ""))
-
-    lines = _brief_lines(lead, enrichment)
-    summary = enrichment.get("Enrichment Summary", "")
-    subject = f"Pre-call brief: {name}"
-    text_parts = [f"Pre-call brief for {name}", ""] + lines
-    if summary:
-        text_parts += ["", summary]
-    if enrichment.get("TW Source URL"):
-        text_parts += ["", f"Source: {enrichment['TW Source URL']}"]
-    text = "\n".join(text_parts)
-
-    html_items = "".join(f"<li>{escape(line)}</li>" for line in lines)
-    html = (
-        f"<p>Pre-call brief for <strong>{escape(name)}</strong></p>"
-        f"<ul>{html_items}</ul>"
-        + (f"<p>{escape(summary).replace(chr(10), '<br>')}</p>" if summary else "")
-        + (
-            f'<p><a href="{escape(enrichment["TW Source URL"])}">TrackWrestling source</a></p>'
-            if enrichment.get("TW Source URL")
-            else ""
-        )
-    )
-
-    sms_body = "\n".join([f"Brief: {name}"] + lines[:3])
-    if len(sms_body) > 300:
-        sms_body = sms_body[:297] + "..."
-
-    return {
-        "event": "lead_enriched",
-        "lead": {
-            "record_id": _safe_str(get("Record ID", "")),
-            "email": _safe_str(get("Email", "")),
-            "name": name,
-            "first_name": first,
-            "last_name": last,
-        },
-        "rep": {
-            "id": _safe_str(rep.get("id", "")),
-            "name": _safe_str(rep.get("name", "")),
-            "email": _safe_str(rep.get("email", "")),
-            "phone_e164": format_us_e164(rep_phone),
-        },
-        "enrichment": {key: enrichment.get(col, "") for key, col in ENRICHMENT_FIELDS},
-        "note": text,
-        "email": {"subject": subject, "text": text, "html": html, "to": _safe_str(rep.get("email", ""))},
-        "sms": {"rep_to": format_us_e164(rep_phone), "rep_message": sms_body},
-    }
-
-
-def send_enrichment_to_n8n(payload: dict[str, Any]) -> bool:
-    url = enrichment_n8n_url()
-    if not url:
-        raise RuntimeError("N8N_ENRICHMENT_WEBHOOK_URL is not set.")
-    headers = {"Content-Type": "application/json"}
-    secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
-    if secret:
-        headers["Authorization"] = secret
-        headers["X-Webhook-Secret"] = secret
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(url, json=payload, headers=headers)
-    if response.status_code >= 400:
-        raise RuntimeError(f"n8n enrichment webhook returned {response.status_code}: {response.text[:300]}")
-    return True
-
-
-def record_enrichment(email: str, result: dict[str, Any], rep_id: str = "") -> dict[str, Any]:
-    """Store enrichment values on the lead and forward the pre-call brief to n8n."""
-    from .routing_config import get_rep_by_id, load_routing_config
+def record_enrichment(email: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Store enrichment values on the lead in the cache."""
     from .store import store
 
     values = result_to_columns(result)
     row = store.apply_enrichment(email, values)
     if row is None:
         return {"stored": False, "reason": f"No lead in cache with email {email}."}
-
-    n8n_sent = False
-    n8n_error: str | None = None
-    if enrichment_n8n_url():
-        config = load_routing_config()
-        rep = next(
-            (r for r in config.get("reps", []) if _safe_str(r.get("email")) == _safe_str(row.get("Assigned Email"))),
-            None,
-        ) or get_rep_by_id(config, _safe_str(rep_id))
-        try:
-            n8n_sent = send_enrichment_to_n8n(build_enrichment_n8n_payload(row, rep, values))
-        except Exception as exc:
-            n8n_error = str(exc)
-            logger.warning("Enrichment n8n forward failed for %s: %s", email, exc)
-
-    return {
-        "stored": True,
-        "stored_fields": [k for k, v in values.items() if v],
-        "n8n_sent": n8n_sent,
-        "n8n_error": n8n_error,
-    }
+    return {"stored": True, "stored_fields": [k for k, v in values.items() if v]}
 
 
 def enrich_lead(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> dict[str, Any]:
-    """Research + store + notify, synchronously (call from a worker thread or a test endpoint)."""
+    """Research + store; returns {"result", "stored", ...}. Raises on research failure."""
     get = row.get if isinstance(row, dict) else row.get
     email = _safe_str(get("Email", ""))
     result = research_lead_with_claude(row, rep)
-    outcome = record_enrichment(email, result, rep_id=_safe_str((rep or {}).get("id", "")))
+    outcome = record_enrichment(email, result)
     return {"result": result, **outcome}
 
 
-def start_enrichment(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> None:
-    """Fire-and-forget: research can take a minute or more, so never block routing on it."""
-    snapshot = dict(row)
+def enrich_before_notify(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> dict[str, str] | None:
+    """Best-effort enrichment for the assignment notification.
 
-    def _run() -> None:
-        try:
-            enrich_lead(snapshot, rep)
-        except Exception:
-            logger.exception("Enrichment failed for email=%s", snapshot.get("Email"))
-
-    threading.Thread(target=_run, name="lead-enrichment", daemon=True).start()
+    Returns the enrichment columns to merge into the row used for email/SMS/n8n, or None if
+    research failed or timed out (the notification then goes out without a brief).
+    """
+    get = row.get if isinstance(row, dict) else row.get
+    email = _safe_str(get("Email", ""))
+    try:
+        result = research_lead_with_claude(row, rep)
+    except Exception:
+        logger.exception("Enrichment failed for email=%s — notifying without brief", email)
+        return None
+    values = result_to_columns(result)
+    try:
+        record_enrichment(email, result)
+    except Exception:
+        logger.exception("Enrichment could not be stored for email=%s", email)
+    return values

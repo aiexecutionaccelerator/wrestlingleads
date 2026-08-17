@@ -462,8 +462,11 @@ class ScoredLeadsStore:
 
         config = load_routing_config()
         if _form_auto_route(form_config, config) and result.get("email"):
+            import asyncio
+
             row_series = self._df.iloc[result["row_index"]]
-            route_result = route_and_notify(row_series, config, form_config=form_config)
+            # Routing may wait on enrichment research (up to a few minutes) — keep it off the event loop.
+            route_result = await asyncio.to_thread(route_and_notify, row_series, config, form_config=form_config)
             if route_result.get("assigned"):
                 self.apply_routing_result(result["email"], route_result)
             result["routing"] = route_result

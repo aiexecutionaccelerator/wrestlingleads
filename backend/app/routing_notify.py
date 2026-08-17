@@ -323,6 +323,52 @@ def _html_row(label: str, value: object) -> str:
       </tr>"""
 
 
+def brief_lines_for_row(row: pd.Series | dict[str, Any]) -> list[str]:
+    """Pre-call brief lines from enrichment columns (empty if the lead was not enriched)."""
+    get = row.get if isinstance(row, dict) else row.get
+    summary = _safe_str(get("Enrichment Summary", ""))
+    if not summary:
+        return []
+    lines = [ln.strip() for ln in summary.split("\n") if ln.strip()]
+    facts: list[str] = []
+    if _safe_str(get("TW Record", "")):
+        rec = f"TrackWrestling: {_safe_str(get('TW Record', ''))}"
+        if _safe_str(get("TW Weight Class", "")):
+            rec += f" @ {_safe_str(get('TW Weight Class', ''))}"
+        if _safe_str(get("TW Team", "")):
+            rec += f" ({_safe_str(get('TW Team', ''))})"
+        facts.append(rec)
+    if _safe_str(get("Club Affiliation", "")):
+        facts.append(f"Club: {_safe_str(get('Club Affiliation', ''))}")
+    if _safe_str(get("Enrichment Confidence", "")):
+        facts.append(f"Confidence: {_safe_str(get('Enrichment Confidence', ''))}")
+    return lines + facts
+
+
+def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
+    lines = brief_lines_for_row(row)
+    if not lines:
+        return ""
+    get = row.get if isinstance(row, dict) else row.get
+    items = "".join(f'<li style="margin:0 0 6px;">{_esc(ln)}</li>' for ln in lines)
+    source = _safe_str(get("TW Source URL", ""))
+    source_html = (
+        f'<p style="margin:8px 0 0;font-size:12px;"><a href="{_esc(source)}" style="color:{_EMAIL_ACCENT};">TrackWrestling source</a></p>'
+        if source
+        else ""
+    )
+    return f"""
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;">
+              <tr>
+                <td style="padding:14px 18px;">
+                  <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#92400e;font-weight:700;">Pre-call brief</p>
+                  <ul style="margin:0;padding-left:18px;font-size:14px;color:#1c1917;line-height:1.5;">{items}</ul>
+                  {source_html}
+                </td>
+              </tr>
+            </table>"""
+
+
 def _build_assignment_html(
     *,
     rep_first: str,
@@ -334,6 +380,7 @@ def _build_assignment_html(
         _html_row(label, val)
         for label, val in form_entries_for_row(row, form_config=form_config)
     )
+    brief_html = _build_brief_html(row)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -360,7 +407,7 @@ def _build_assignment_html(
                   <p style="margin:0;font-size:20px;font-weight:700;color:#0f172a;">{_esc(name)}</p>
                 </td>
               </tr>
-            </table>
+            </table>{brief_html}
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:20px;">
               {form_rows}
             </table>
@@ -401,6 +448,14 @@ def build_assignment_email(
     lines = [f"Hi {rep_first},", "", "NEW LEAD ASSIGNED", "", name, ""]
     if form_label:
         lines.append(f"Form: {form_label}")
+        lines.append("")
+    brief = brief_lines_for_row(row)
+    if brief:
+        lines.append("PRE-CALL BRIEF")
+        lines.extend(f"- {ln}" for ln in brief)
+        source = _safe_str(row.get("TW Source URL", "") if isinstance(row, dict) else row.get("TW Source URL", ""))
+        if source:
+            lines.append(f"Source: {source}")
         lines.append("")
     for label, val in form_entries_for_row(row, form_config=resolved_form):
         lines.append(f"{label}: {val}")

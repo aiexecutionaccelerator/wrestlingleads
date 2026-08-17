@@ -110,6 +110,9 @@ def _sms_payload(lead: dict[str, Any], rep: dict[str, Any]) -> dict[str, Any]:
     ]
     if lead_phone:
         rep_lines.append(f"Phone: {lead_phone}")
+    brief_first = _safe_str(lead.get("brief_first_line"))
+    if brief_first:
+        rep_lines.append(f"Brief: {brief_first}")
     rep_lines.append("Please follow up ASAP.")
 
     lead_lines = [
@@ -143,6 +146,14 @@ def build_n8n_payload(
     )
     routing = (resolved_form or form_config or {}).get("routing") or {}
     lead_block = _lead_payload(row, form_config=resolved_form)
+    from .enrichment import ENRICHMENT_FIELDS
+    from .routing_notify import brief_lines_for_row
+
+    get = row.get if isinstance(row, dict) else row.get
+    enrichment_block = {key: _safe_str(get(col, "")) for key, col in ENRICHMENT_FIELDS}
+    brief_lines = brief_lines_for_row(row)
+    enrichment_block["brief_text"] = "\n".join(brief_lines)
+    lead_block["brief_first_line"] = brief_lines[0] if brief_lines else ""
     rep_block = _rep_payload_for_n8n(rep)
     payload: dict[str, Any] = {
         "event": "lead_assignment_test" if test else "lead_assigned",
@@ -150,6 +161,7 @@ def build_n8n_payload(
         "lead": lead_block,
         "rep": rep_block,
         "sms": _sms_payload(lead_block, rep_block),
+        "enrichment": enrichment_block,
         "assignment": {
             "route_bucket": assignment.get("route_bucket", ""),
             "route_reason": assignment.get("route_reason", ""),
