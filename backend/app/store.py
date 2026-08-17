@@ -250,7 +250,7 @@ class ScoredLeadsStore:
         self._persist()
 
     def apply_enrichment(self, email: str, values: dict[str, str]) -> pd.Series | None:
-        """Write Clay enrichment columns onto the lead; returns the updated row or None if not found."""
+        """Write enrichment columns onto the lead; returns the updated row or None if not found."""
         idx = self._find_email_index(email)
         if idx is None or self._df is None:
             return None

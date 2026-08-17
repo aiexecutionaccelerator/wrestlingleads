@@ -85,56 +85,36 @@ async def _score_wufoo_lead(
         )
 
 
-def _enrichment_status() -> dict[str, Any]:
-    from .clay_notify import clay_callback_secret, clay_configured, enrichment_n8n_url
-    from .enrichment import ENRICHMENT_MODEL, claude_enrichment_configured, enrichment_provider
-
-    return {
-        "provider": enrichment_provider(),
-        "claude_configured": claude_enrichment_configured(),
-        "claude_model": ENRICHMENT_MODEL,
-        "clay_webhook_configured": clay_configured(),
-        "callback_path": "/webhooks/clay-enrichment",
-        "callback_secret_configured": bool(clay_callback_secret()),
-        "n8n_enrichment_webhook_configured": bool(enrichment_n8n_url()),
-    }
-
-
 @router.get("/enrichment/status")
 def enrichment_status() -> dict[str, Any]:
-    """Diagnostics for lead enrichment (does not expose secrets)."""
-    return _enrichment_status()
+    """Diagnostics for Claude lead enrichment (does not expose secrets)."""
+    from .enrichment import ENRICHMENT_MODEL, enrichment_enabled, enrichment_n8n_url, enrichment_secret
 
-
-@router.get("/clay/status")
-def clay_status() -> dict[str, Any]:
-    """Back-compat alias for /webhooks/enrichment/status."""
-    return _enrichment_status()
-
-
-def _verify_enrichment_secret(request: Request) -> None:
-    from .clay_notify import clay_callback_secret
-
-    secret = clay_callback_secret()
-    if not secret:
-        return
-    provided = request.headers.get("X-Clay-Secret") or request.headers.get("Authorization")
-    if provided != secret:
-        raise HTTPException(status_code=401, detail="Invalid enrichment secret.")
+    return {
+        "enabled": enrichment_enabled(),
+        "model": ENRICHMENT_MODEL,
+        "run_endpoint": "/webhooks/enrichment/run?email=<lead email>",
+        "run_secret_configured": bool(enrichment_secret()),
+        "n8n_enrichment_webhook_configured": bool(enrichment_n8n_url()),
+    }
 
 
 @router.post("/enrichment/run")
 def enrichment_run(request: Request, email: str, wait: bool = True) -> dict[str, Any]:
     """
-    Manually enrich a lead already in the cache with Claude (for testing / re-runs).
-    Secured by CLAY_CALLBACK_SECRET (header X-Clay-Secret). ?wait=false returns immediately.
+    Manually enrich a lead already in the cache (for testing / re-runs).
+    Secured by ENRICHMENT_SECRET (header X-Enrichment-Secret). ?wait=false returns immediately.
     """
-    from .enrichment import claude_enrichment_configured, enrich_lead_with_claude, start_claude_enrichment
+    from .enrichment import enrich_lead, enrichment_enabled, enrichment_secret, start_enrichment
     from .routing_config import load_routing_config
 
-    _verify_enrichment_secret(request)
-    if not claude_enrichment_configured():
-        raise HTTPException(status_code=400, detail="Set ANTHROPIC_API_KEY (and ENRICHMENT_PROVIDER=claude) on the server.")
+    secret = enrichment_secret()
+    if secret:
+        provided = request.headers.get("X-Enrichment-Secret") or request.headers.get("Authorization")
+        if provided != secret:
+            raise HTTPException(status_code=401, detail="Invalid enrichment secret.")
+    if not enrichment_enabled():
+        raise HTTPException(status_code=400, detail="Set ANTHROPIC_API_KEY on the server.")
 
     idx = store.find_lead_index(email=email)
     if idx is None:
@@ -146,43 +126,13 @@ def enrichment_run(request: Request, email: str, wait: bool = True) -> dict[str,
         None,
     )
     if not wait:
-        start_claude_enrichment(row, rep)
+        start_enrichment(row, rep)
         return {"success": True, "email": email, "queued": True}
     try:
-        outcome = enrich_lead_with_claude(row, rep)
+        outcome = enrich_lead(row, rep)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Enrichment failed: {exc}") from exc
     return {"success": True, "email": email, **outcome}
-
-
-@router.post("/clay-enrichment")
-async def clay_enrichment_callback(request: Request) -> dict[str, Any]:
-    """
-    Receive enrichment results from Clay's HTTP API column, store them on the lead,
-    and forward a pre-call brief to n8n (N8N_ENRICHMENT_WEBHOOK_URL) for the assigned rep.
-    """
-    from .enrichment import record_enrichment
-
-    _verify_enrichment_secret(request)
-
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="Expected a JSON object.")
-
-    email = _safe_str(body.get("email"))
-    if not email:
-        raise HTTPException(status_code=400, detail="Missing email.")
-
-    outcome = record_enrichment(email, body, rep_id=_safe_str(body.get("rep_id")))
-    if not outcome.get("stored"):
-        log_webhook_event(outcome="rejected", detail="clay_enrichment_lead_not_found", email=email)
-        raise HTTPException(status_code=404, detail=outcome.get("reason", "Lead not found."))
-
-    log_webhook_event(outcome="accepted", detail="clay_enrichment", email=email)
-    return {"success": True, "email": email, **{k: v for k, v in outcome.items() if k != "stored"}}
 
 
 @router.get("/wufoo/status")
