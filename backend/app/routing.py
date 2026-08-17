@@ -25,6 +25,7 @@ from .routing_log import append_routing_entry, consecutive_routes_to_rep, count_
 from .routing_notify import send_lead_assignment_email, email_configured
 from .integrations.hubspot import hubspot_configured, sync_contact_on_route
 from .n8n_notify import n8n_configured, send_n8n_assignment_notification
+from .clay_notify import clay_configured, send_clay_enrichment_request
 
 WEST_COAST_STATE_CODES = frozenset({"CA", "OR", "WA", "NV", "AZ", "HI", "AK"})
 WEST_COAST_REP_ID = "eric"
@@ -604,8 +605,10 @@ def route_and_notify(
     email_sent = False
     n8n_sent = False
     hubspot_synced = False
+    clay_sent = False
     notify_error: str | None = None
     n8n_error: str | None = None
+    clay_error: str | None = None
     hubspot_error: str | None = None
     hubspot_result: dict[str, Any] | None = None
 
@@ -645,6 +648,12 @@ def route_and_notify(
         elif not n8n_configured() and not email_configured():
             notify_error = "No notifications configured. Set N8N_WEBHOOK_URL or email on Railway."
 
+        if clay_configured():
+            try:
+                clay_sent = send_clay_enrichment_request(row, rep, assignment, form_config=form_config)
+            except Exception as exc:
+                clay_error = str(exc)
+
     append_routing_entry(
         rep_id=_safe_str(rep.get("id")),
         rep_name=_safe_str(rep.get("name")),
@@ -666,4 +675,6 @@ def route_and_notify(
         "hubspot_error": hubspot_error,
         "notify_error": notify_error,
         "n8n_error": n8n_error,
+        "clay_sent": clay_sent,
+        "clay_error": clay_error,
     }

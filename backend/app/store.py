@@ -249,6 +249,18 @@ class ScoredLeadsStore:
         self._df.at[idx, "Routed At"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
         self._persist()
 
+    def apply_enrichment(self, email: str, values: dict[str, str]) -> pd.Series | None:
+        """Write Clay enrichment columns onto the lead; returns the updated row or None if not found."""
+        idx = self._find_email_index(email)
+        if idx is None or self._df is None:
+            return None
+        for col, val in values.items():
+            if col not in self._df.columns:
+                self._df[col] = ""
+            self._df.at[idx, col] = val
+        self._persist()
+        return self._df.iloc[idx]
+
     def iter_unrouted_leads(self, limit: int = 50):
         if not self.loaded or self._df is None:
             return

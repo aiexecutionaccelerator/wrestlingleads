@@ -34,6 +34,12 @@ export default function LeadCard({ lead, index = 0 }) {
           <p className="lead-action">{lead["Recommended Action"]}</p>
         </div>
       </div>
+      {lead["Enrichment Summary"] && (
+        <p className="lead-reasons">
+          <strong>Pre-call brief</strong>
+          {lead["Enrichment Confidence"] ? ` (${lead["Enrichment Confidence"]} confidence)` : ""}: {lead["Enrichment Summary"]}
+        </p>
+      )}
       {lead["AI Reasons"] && (
         <>
           <button type="button" className="link-btn" onClick={() => setExpanded(!expanded)}>

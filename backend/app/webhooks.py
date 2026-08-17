@@ -85,6 +85,82 @@ async def _score_wufoo_lead(
         )
 
 
+@router.get("/clay/status")
+def clay_status() -> dict[str, Any]:
+    """Diagnostics for the Clay enrichment loop (does not expose secrets)."""
+    from .clay_notify import clay_callback_secret, clay_configured, enrichment_n8n_url
+
+    return {
+        "clay_webhook_configured": clay_configured(),
+        "callback_path": "/webhooks/clay-enrichment",
+        "callback_secret_configured": bool(clay_callback_secret()),
+        "n8n_enrichment_webhook_configured": bool(enrichment_n8n_url()),
+    }
+
+
+@router.post("/clay-enrichment")
+async def clay_enrichment_callback(request: Request) -> dict[str, Any]:
+    """
+    Receive enrichment results from Clay's HTTP API column, store them on the lead,
+    and forward a pre-call brief to n8n (N8N_ENRICHMENT_WEBHOOK_URL) for the assigned rep.
+    """
+    from .clay_notify import (
+        build_enrichment_n8n_payload,
+        clay_callback_secret,
+        enrichment_n8n_url,
+        parse_enrichment_body,
+        send_enrichment_to_n8n,
+    )
+    from .routing_config import get_rep_by_id, load_routing_config
+
+    secret = clay_callback_secret()
+    if secret:
+        provided = request.headers.get("X-Clay-Secret") or request.headers.get("Authorization")
+        if provided != secret:
+            raise HTTPException(status_code=401, detail="Invalid Clay callback secret.")
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Expected a JSON object.")
+
+    email = _safe_str(body.get("email"))
+    if not email:
+        raise HTTPException(status_code=400, detail="Missing email.")
+
+    values = parse_enrichment_body(body)
+    row = store.apply_enrichment(email, values)
+    if row is None:
+        log_webhook_event(outcome="rejected", detail="clay_enrichment_lead_not_found", email=email)
+        raise HTTPException(status_code=404, detail=f"No lead in cache with email {email}.")
+
+    log_webhook_event(outcome="accepted", detail="clay_enrichment", email=email)
+
+    n8n_sent = False
+    n8n_error: str | None = None
+    if enrichment_n8n_url():
+        config = load_routing_config()
+        rep = next(
+            (r for r in config.get("reps", []) if _safe_str(r.get("email")) == _safe_str(row.get("Assigned Email"))),
+            None,
+        ) or get_rep_by_id(config, _safe_str(body.get("rep_id")))
+        try:
+            n8n_sent = send_enrichment_to_n8n(build_enrichment_n8n_payload(row, rep, values))
+        except Exception as exc:
+            n8n_error = str(exc)
+            logger.warning("Clay enrichment n8n forward failed for %s: %s", email, exc)
+
+    return {
+        "success": True,
+        "email": email,
+        "stored_fields": [k for k, v in values.items() if v],
+        "n8n_sent": n8n_sent,
+        "n8n_error": n8n_error,
+    }
+
+
 @router.get("/wufoo/status")
 def wufoo_webhook_status() -> dict[str, Any]:
     """Diagnostics for Wufoo integration (does not expose secrets)."""
