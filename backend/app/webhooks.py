@@ -91,6 +91,7 @@ def enrichment_status() -> dict[str, Any]:
     from .enrichment import ENRICHMENT_MODEL, TIMEOUT_SECONDS, enrichment_enabled, enrichment_secret
 
     return {
+        "deployed_commit": (os.getenv("RAILWAY_GIT_COMMIT_SHA", "") or "")[:7],
         "enabled": enrichment_enabled(),
         "model": ENRICHMENT_MODEL,
         "timeout_seconds": TIMEOUT_SECONDS,
