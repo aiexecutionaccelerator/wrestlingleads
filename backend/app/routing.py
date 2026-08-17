@@ -23,7 +23,7 @@ from .routing_config import get_rep_by_id, load_routing_config, reps_for_bucket
 from .scoring_config import get_tier_thresholds
 from .routing_log import append_routing_entry, consecutive_routes_to_rep, count_rep_this_week, was_lead_routed
 from .routing_notify import send_lead_assignment_email, email_configured
-from .integrations.hubspot import hubspot_configured, sync_contact_on_route
+from .integrations.hubspot import add_enrichment_note, hubspot_configured, sync_contact_on_route
 from .n8n_notify import n8n_configured, send_n8n_assignment_notification
 from .enrichment import enrich_before_notify, enrichment_enabled
 
@@ -606,6 +606,8 @@ def route_and_notify(
     n8n_sent = False
     hubspot_synced = False
     enriched = False
+    hubspot_note: dict[str, Any] | None = None
+    hubspot_note_error: str | None = None
     notify_error: str | None = None
     n8n_error: str | None = None
 
@@ -621,6 +623,18 @@ def route_and_notify(
             merged = dict(row.items()) if not isinstance(row, dict) else dict(row)
             merged.update(values)
             row = pd.Series(merged)
+            if hubspot_configured() and config.get("hubspot_enrichment_note", True) and lead_email:
+                from .routing_notify import brief_note_html
+
+                try:
+                    hubspot_note = add_enrichment_note(
+                        lead_email,
+                        brief_note_html(row),
+                        first_name=_safe_str(get("First Name", "")),
+                        last_name=_safe_str(get("Last Name", "")),
+                    )
+                except Exception as exc:
+                    hubspot_note_error = str(exc)
     hubspot_error: str | None = None
     hubspot_result: dict[str, Any] | None = None
 
@@ -679,4 +693,6 @@ def route_and_notify(
         "notify_error": notify_error,
         "n8n_error": n8n_error,
         "enriched": enriched,
+        "hubspot_note": hubspot_note,
+        "hubspot_note_error": hubspot_note_error,
     }

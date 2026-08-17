@@ -345,6 +345,16 @@ def brief_lines_for_row(row: pd.Series | dict[str, Any]) -> list[str]:
     return lines + facts
 
 
+def brief_note_html(row: pd.Series | dict[str, Any]) -> str:
+    """Compact HTML for a HubSpot Note on the contact timeline."""
+    lines = brief_lines_for_row(row)
+    get = row.get if isinstance(row, dict) else row.get
+    items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
+    source = _safe_str(get("TW Source URL", ""))
+    source_html = f'<p><a href="{_esc(source)}">TrackWrestling source</a></p>' if source else ""
+    return f"<p><strong>Pre-call brief (LeadsWrestling)</strong></p><ul>{items}</ul>{source_html}"
+
+
 def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
     lines = brief_lines_for_row(row)
     if not lines:

@@ -337,6 +337,76 @@ def create_or_update_contact(properties: dict[str, str]) -> dict[str, Any]:
         return {"action": "created", "id": str(body.get("id", ""))}
 
 
+HUBSPOT_NOTES_API = "https://api.hubapi.com/crm/v3/objects/notes"
+_NOTE_TO_CONTACT_ASSOCIATION_TYPE_ID = 202
+
+
+def _ensure_contact_id(client: httpx.Client, *, token: str, email: str, properties: dict[str, str]) -> str:
+    """Find the contact by email, or create a minimal one. Handles the create race (409 → existing id)."""
+    existing = _search_contact_by_email(client, token=token, email=email)
+    if existing:
+        return existing
+    response = client.post(HUBSPOT_API, headers=_headers(token), json={"properties": {"email": email, **properties}})
+    if response.status_code == 409:
+        # "Contact already exists. Existing ID: 12345"
+        import re
+
+        match = re.search(r"Existing ID:\s*(\d+)", _api_error(response))
+        if match:
+            return match.group(1)
+    if response.status_code >= 400:
+        raise RuntimeError(_api_error(response))
+    return str(response.json().get("id", ""))
+
+
+def add_enrichment_note(
+    email: str,
+    note_html: str,
+    *,
+    first_name: str = "",
+    last_name: str = "",
+) -> dict[str, Any]:
+    """Attach the pre-call brief to the contact's timeline as a Note (no custom properties needed)."""
+    token = os.getenv("HUBSPOT_ACCESS_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("HUBSPOT_ACCESS_TOKEN is not configured.")
+    if not email:
+        raise RuntimeError("Lead must have an email to attach a HubSpot note.")
+
+    props: dict[str, str] = {}
+    if first_name:
+        props["firstname"] = first_name
+    if last_name:
+        props["lastname"] = last_name
+
+    with httpx.Client(timeout=30.0) as client:
+        contact_id = _ensure_contact_id(client, token=token, email=email, properties=props)
+        response = client.post(
+            HUBSPOT_NOTES_API,
+            headers=_headers(token),
+            json={
+                "properties": {
+                    "hs_timestamp": str(int(time.time() * 1000)),
+                    "hs_note_body": note_html,
+                },
+                "associations": [
+                    {
+                        "to": {"id": contact_id},
+                        "types": [
+                            {
+                                "associationCategory": "HUBSPOT_DEFINED",
+                                "associationTypeId": _NOTE_TO_CONTACT_ASSOCIATION_TYPE_ID,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(_api_error(response))
+        return {"contact_id": contact_id, "note_id": str(response.json().get("id", ""))}
+
+
 def sync_contact_on_route(
     row: pd.Series | dict[str, Any],
     rep: dict[str, Any],
