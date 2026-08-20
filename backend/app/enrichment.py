@@ -205,22 +205,37 @@ def enrich_lead(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> 
     return {"result": result, **outcome}
 
 
-def enrich_before_notify(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> dict[str, str] | None:
+def _short_error(exc: Exception) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    if "authentication" in text.lower() or "401" in text or "api key" in text.lower():
+        return "the Anthropic API key on the server is invalid or missing — fix ANTHROPIC_API_KEY on Railway"
+    if "timeout" in text.lower() or "timed out" in text.lower():
+        return f"research timed out after {TIMEOUT_SECONDS:.0f}s"
+    if "rate" in text.lower() and "limit" in text.lower():
+        return "the Anthropic API rate limit was hit — will work again shortly"
+    return text[:160]
+
+
+def enrich_before_notify(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> tuple[dict[str, str], bool]:
     """Best-effort enrichment for the assignment notification.
 
-    Returns the enrichment columns to merge into the row used for email/SMS/n8n, or None if
-    research failed or timed out (the notification then goes out without a brief).
+    Returns (columns to merge into the row used for email/SMS/n8n, ok). On research failure the
+    columns carry an explicit error line so the notification says WHY there is no brief, and ok
+    is False (nothing is stored on the lead, no HubSpot note is written).
     """
     get = row.get if isinstance(row, dict) else row.get
     email = _safe_str(get("Email", ""))
     try:
         result = research_lead_with_claude(row, rep)
-    except Exception:
-        logger.exception("Enrichment failed for email=%s — notifying without brief", email)
-        return None
+    except Exception as exc:
+        logger.exception("Enrichment failed for email=%s — notifying with error note", email)
+        return {
+            "Enrichment Confidence": "Error",
+            "Enrichment Summary": f"Automatic lead research was unavailable: {_short_error(exc)}",
+        }, False
     values = result_to_columns(result)
     try:
         record_enrichment(email, result)
     except Exception:
         logger.exception("Enrichment could not be stored for email=%s", email)
-    return values
+    return values, True

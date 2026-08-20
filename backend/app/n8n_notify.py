@@ -153,7 +153,8 @@ def build_n8n_payload(
     enrichment_block = {key: _safe_str(get(col, "")) for key, col in ENRICHMENT_FIELDS}
     brief_lines = brief_lines_for_row(row)
     enrichment_block["brief_text"] = "\n".join(brief_lines)
-    lead_block["brief_first_line"] = brief_lines[0] if brief_lines else ""
+    is_error = _safe_str(get("Enrichment Confidence", "")) == "Error"
+    lead_block["brief_first_line"] = brief_lines[0] if brief_lines and not is_error else ""
     rep_block = _rep_payload_for_n8n(rep)
     payload: dict[str, Any] = {
         "event": "lead_assignment_test" if test else "lead_assigned",

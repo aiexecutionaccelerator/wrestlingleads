@@ -340,8 +340,9 @@ def brief_lines_for_row(row: pd.Series | dict[str, Any]) -> list[str]:
         facts.append(rec)
     if _safe_str(get("Club Affiliation", "")):
         facts.append(f"Club: {_safe_str(get('Club Affiliation', ''))}")
-    if _safe_str(get("Enrichment Confidence", "")):
-        facts.append(f"Confidence: {_safe_str(get('Enrichment Confidence', ''))}")
+    confidence = _safe_str(get("Enrichment Confidence", ""))
+    if confidence and confidence != "Error":
+        facts.append(f"Confidence: {confidence}")
     return lines + facts
 
 
@@ -360,6 +361,9 @@ def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
     if not lines:
         return ""
     get = row.get if isinstance(row, dict) else row.get
+    is_error = _safe_str(get("Enrichment Confidence", "")) == "Error"
+    heading = "Pre-call brief — unavailable" if is_error else "Pre-call brief"
+    bg, border, head_color = ("#fef2f2", "#fecaca", "#991b1b") if is_error else ("#fffbeb", "#fcd34d", "#92400e")
     items = "".join(f'<li style="margin:0 0 6px;">{_esc(ln)}</li>' for ln in lines)
     source = _safe_str(get("TW Source URL", ""))
     source_html = (
@@ -368,10 +372,10 @@ def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
         else ""
     )
     return f"""
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:{bg};border:1px solid {border};border-radius:10px;">
               <tr>
                 <td style="padding:14px 18px;">
-                  <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#92400e;font-weight:700;">Pre-call brief</p>
+                  <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:{head_color};font-weight:700;">{heading}</p>
                   <ul style="margin:0;padding-left:18px;font-size:14px;color:#1c1917;line-height:1.5;">{items}</ul>
                   {source_html}
                 </td>

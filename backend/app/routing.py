@@ -617,12 +617,13 @@ def route_and_notify(
 
     # Research the lead first (bounded) so the single assignment email/SMS carries the brief.
     if not skip_notify and enrichment_enabled():
-        values = enrich_before_notify(row, rep)
-        if values:
+        values, enrichment_ok = enrich_before_notify(row, rep)
+        # Merge even on failure — the email then explains why there is no brief.
+        merged = dict(row.items()) if not isinstance(row, dict) else dict(row)
+        merged.update(values)
+        row = pd.Series(merged)
+        if enrichment_ok:
             enriched = True
-            merged = dict(row.items()) if not isinstance(row, dict) else dict(row)
-            merged.update(values)
-            row = pd.Series(merged)
             if hubspot_configured() and config.get("hubspot_enrichment_note", True) and lead_email:
                 from .routing_notify import brief_note_html
 
