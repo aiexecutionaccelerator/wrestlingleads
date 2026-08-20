@@ -223,7 +223,7 @@ def _pick_fixed_rep(
         return candidates[0]
 
     counts = {rid: count_rep_this_week(rid) for rid in rep_ids}
-    return min(candidates, key=lambda rep: counts.get(_safe_str(rep.get("id")), 0))
+    return _weighted_pick(candidates, counts)
 
 
 def _assign_fixed_reps(
@@ -271,6 +271,26 @@ def _form_auto_route(form_config: dict[str, Any] | None, config: dict[str, Any])
         if "auto_route" in routing:
             return bool(routing.get("auto_route"))
     return bool(config.get("auto_route_enabled", True))
+
+
+def _rep_weight(rep: dict[str, Any]) -> float:
+    """Relative lead share within a shared pool (default 1; e.g. Beau 2 / Eric 1 → Beau gets ~2x)."""
+    try:
+        weight = float(rep.get("weight", 1) or 1)
+    except (TypeError, ValueError):
+        return 1.0
+    return weight if weight > 0 else 1.0
+
+
+def _weighted_pick(candidates: list[dict[str, Any]], counts: dict[str, int]) -> dict[str, Any]:
+    """Least-loaded pick where load is measured relative to each rep's weight."""
+    return min(
+        candidates,
+        key=lambda rep: (
+            (counts.get(_safe_str(rep.get("id")), 0) + 1) / _rep_weight(rep),
+            counts.get(_safe_str(rep.get("id")), 0),
+        ),
+    )
 
 
 def _rep_under_cap(rep: dict[str, Any]) -> bool:
@@ -388,7 +408,7 @@ def _pick_general_rep(row: pd.Series | dict[str, Any], config: dict[str, Any]) -
         return candidates[0], _assigned_reason(candidates[0])
 
     counts = {r["id"]: count_rep_this_week(_safe_str(r.get("id"))) for r in candidates}
-    chosen = min(candidates, key=lambda r: counts.get(r["id"], 0))
+    chosen = _weighted_pick(candidates, counts)
     if west and eric and _rep_under_cap(eric) and chosen.get("id") != eric.get("id"):
         return eric, _assigned_reason(eric, "West Coast")
     return chosen, _assigned_reason(chosen)

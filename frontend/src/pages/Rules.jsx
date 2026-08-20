@@ -30,6 +30,19 @@ function parseWeeklyCap(value) {
   return Math.floor(n);
 }
 
+function parseWeight(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return n;
+}
+
+function sharePercent(rep, reps) {
+  const pool = (reps || []).filter((r) => r.bucket === rep.bucket && r.bucket !== "automation");
+  const total = pool.reduce((sum, r) => sum + parseWeight(r.weight ?? 1), 0);
+  if (!total || pool.length < 2) return null;
+  return Math.round((parseWeight(rep.weight ?? 1) / total) * 100);
+}
+
 export default function Rules() {
   const [rules, setRules] = useState(null);
   const [stats, setStats] = useState(null);
@@ -97,6 +110,7 @@ export default function Rules() {
         reps: (rules.reps || []).map((rep) => ({
           ...rep,
           weekly_cap: parseWeeklyCap(rep.weekly_cap),
+          weight: parseWeight(rep.weight ?? 1),
         })),
       };
       const saved = await saveRoutingRules(payload);
@@ -312,6 +326,26 @@ export default function Rules() {
                       }
                       placeholder="No limit"
                     />
+                  </label>
+                  )}
+
+                  {rep.bucket === "general" && (
+                  <label className="field-label">
+                    Lead share
+                    <input
+                      className="input cap-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={rep.weight ?? 1}
+                      onChange={(e) => updateRep(index, "weight", e.target.value)}
+                    />
+                    <span className="field-hint">
+                      Share vs. others in the same pool — 2 means twice the leads of a rep on 1
+                      {sharePercent(rep, rules?.reps) != null
+                        ? ` (currently ~${sharePercent(rep, rules.reps)}% of this pool)`
+                        : ""}
+                    </span>
                   </label>
                   )}
                 </div>

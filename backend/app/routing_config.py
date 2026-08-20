@@ -78,6 +78,9 @@ def _backfill_rep_fields(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
             if phone:
                 rep["phone"] = phone
                 changed = True
+        if rep.get("weight") in (None, "") and fallback.get("weight") is not None:
+            rep["weight"] = fallback.get("weight")
+            changed = True
     return config, changed
 
 

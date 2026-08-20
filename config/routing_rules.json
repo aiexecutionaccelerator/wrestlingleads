@@ -38,7 +38,8 @@
       "phone": "6203520665",
       "bucket": "general",
       "hubspot_owner_id": "41425416",
-      "weekly_cap": null
+      "weekly_cap": null,
+      "weight": 2
     },
     {
       "id": "eric",
@@ -47,7 +48,8 @@
       "phone": "8014005932",
       "bucket": "general",
       "hubspot_owner_id": "207311194",
-      "weekly_cap": null
+      "weekly_cap": null,
+      "weight": 1
     },
     {
       "id": "automation",
