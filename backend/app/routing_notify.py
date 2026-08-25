@@ -346,14 +346,25 @@ def brief_lines_for_row(row: pd.Series | dict[str, Any]) -> list[str]:
     return lines + facts
 
 
+def _brief_links(row: pd.Series | dict[str, Any]) -> list[tuple[str, str]]:
+    """(label, url) links to show under the brief — Flo profile first, then results source."""
+    get = row.get if isinstance(row, dict) else row.get
+    links: list[tuple[str, str]] = []
+    profile = _safe_str(get("Flo Profile", ""))
+    if profile:
+        links.append(("FloWrestling profile", profile))
+    source = _safe_str(get("TW Source URL", ""))
+    if source and source != profile:
+        links.append(("Results source", source))
+    return links
+
+
 def brief_note_html(row: pd.Series | dict[str, Any]) -> str:
     """Compact HTML for a HubSpot Note on the contact timeline."""
     lines = brief_lines_for_row(row)
-    get = row.get if isinstance(row, dict) else row.get
     items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
-    source = _safe_str(get("TW Source URL", ""))
-    source_html = f'<p><a href="{_esc(source)}">Results source</a></p>' if source else ""
-    return f"<p><strong>Pre-call brief (LeadsWrestling)</strong></p><ul>{items}</ul>{source_html}"
+    links_html = "".join(f'<p><a href="{_esc(url)}">{_esc(label)}</a></p>' for label, url in _brief_links(row))
+    return f"<p><strong>Pre-call brief (LeadsWrestling)</strong></p><ul>{items}</ul>{links_html}"
 
 
 def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
@@ -365,11 +376,9 @@ def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
     heading = "Pre-call brief — unavailable" if is_error else "Pre-call brief"
     bg, border, head_color = ("#fef2f2", "#fecaca", "#991b1b") if is_error else ("#fffbeb", "#fcd34d", "#92400e")
     items = "".join(f'<li style="margin:0 0 6px;">{_esc(ln)}</li>' for ln in lines)
-    source = _safe_str(get("TW Source URL", ""))
-    source_html = (
-        f'<p style="margin:8px 0 0;font-size:12px;"><a href="{_esc(source)}" style="color:{_EMAIL_ACCENT};">Results source</a></p>'
-        if source
-        else ""
+    source_html = "".join(
+        f'<p style="margin:8px 0 0;font-size:12px;"><a href="{_esc(url)}" style="color:{_EMAIL_ACCENT};">{_esc(label)} →</a></p>'
+        for label, url in _brief_links(row)
     )
     return f"""
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:{bg};border:1px solid {border};border-radius:10px;">
@@ -467,9 +476,7 @@ def build_assignment_email(
     if brief:
         lines.append("PRE-CALL BRIEF")
         lines.extend(f"- {ln}" for ln in brief)
-        source = _safe_str(row.get("TW Source URL", "") if isinstance(row, dict) else row.get("TW Source URL", ""))
-        if source:
-            lines.append(f"Source: {source}")
+        lines.extend(f"{label}: {url}" for label, url in _brief_links(row))
         lines.append("")
     for label, val in form_entries_for_row(row, form_config=resolved_form):
         lines.append(f"{label}: {val}")

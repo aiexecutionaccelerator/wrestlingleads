@@ -35,6 +35,7 @@ ENRICHMENT_FIELDS: tuple[tuple[str, str], ...] = (
     ("tw_weight_class", "TW Weight Class"),
     ("tw_team", "TW Team"),
     ("tw_source_url", "TW Source URL"),
+    ("flo_profile_url", "Flo Profile"),
     ("club", "Club Affiliation"),
     ("parent_linkedin_url", "Parent LinkedIn"),
     ("parent_headline", "Parent Headline"),
@@ -62,7 +63,8 @@ You receive one lead's form submission. Do the following, using web search and p
 Budget: use at most a handful of searches. Stop as soon as you have an answer or it is clear nothing reliable exists.
 
 Return ONLY a JSON object with exactly these keys (use "" for unknown):
-wrestler_name, parent_name, tw_record, tw_weight_class, tw_team, tw_source_url, club, parent_linkedin_url, parent_headline, confidence, summary
+wrestler_name, parent_name, tw_record, tw_weight_class, tw_team, tw_source_url, flo_profile_url, club, parent_linkedin_url, parent_headline, confidence, summary
+- flo_profile_url: the FloWrestling profile URL of the matched wrestler (from search_flo_athletes / get_flo_athlete), only if the match is plausible; otherwise "".
 - confidence: one of "High", "Medium", "Low", "Not found" (High = record verified on TrackWrestling with matching state; Medium = record or club found with minor ambiguity; Low = only weak signals; Not found = nothing verified).
 - summary: the 3-line brief, lines separated by "\\n".
 - parent_linkedin_url / parent_headline: only if you happened to find a clearly matching public profile; otherwise "".
