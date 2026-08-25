@@ -235,16 +235,24 @@ def research_lead_with_claude(
     messages: list[dict[str, Any]] = [{"role": "user", "content": _lead_description(row, rep)}]
     response = None
     started = time.monotonic()
+    container_id: str | None = None
     for _ in range(12):  # custom tool calls + pause_turn continuations
         if time.monotonic() - started > TIMEOUT_SECONDS:
             raise TimeoutError(f"enrichment exceeded {TIMEOUT_SECONDS:.0f}s")
+        extra: dict[str, Any] = {"container": container_id} if container_id else {}
         response = client.messages.create(
             model=ENRICHMENT_MODEL,
             max_tokens=8000,
             system=SYSTEM_PROMPT,
             tools=_tools(),
             messages=messages,
+            **extra,
         )
+        # The 20260209 web tools run in a server-side container; continuations of a
+        # turn that used them must carry the container id or the API returns a 400.
+        container = getattr(response, "container", None)
+        if container is not None and getattr(container, "id", None):
+            container_id = container.id
         if response.stop_reason == "pause_turn":
             messages = messages + [{"role": "assistant", "content": response.content}]
             continue
