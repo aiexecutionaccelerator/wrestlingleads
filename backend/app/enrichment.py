@@ -11,9 +11,11 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import pandas as pd
 
 from .features import _safe_str
@@ -49,8 +51,8 @@ You receive one lead's form submission. Do the following, using web search and p
 1. Determine who is who. The form's Name field is sometimes the parent and sometimes the wrestler.
    - Buyer type "Wrestler Seeking..." → the name is the wrestler.
    - Buyer type "Parent..." → the name is the parent, unless the message clearly uses that same first name for the athlete (e.g. Name "Jessie Murphy" + message "Jessie wrestled for one year..." → Jessie is the wrestler). Also extract any child's name given in the message, and use the email address as a clue to the parent's name (e.g. "ronandpamfollett@..." → parents are likely Ron and Pam Follett — report as "possibly Ron and Pam Follett"). If the wrestler's name cannot be determined, leave wrestler_name empty — do not guess.
-2. If you have a wrestler name: search TrackWrestling.com (fallback: FloWrestling, school athletics pages) for that wrestler in the given state and grade level. Report the most recent season's win-loss record, weight class, team/school, and the source URL. Only report a match if name AND state agree — never guess between same-name wrestlers. Youth and middle-school coverage is thin; "not found" is a normal outcome.
-3. If you have a wrestler name: identify their club/team via USA Wrestling club listings, TrackWrestling team pages, or club rosters. Report a club only if the wrestler's name appears on that club's roster or results.
+2. If you have a wrestler name: FIRST call search_flo_athletes (FloWrestling's athlete database — fast and structured). Pick the candidate whose hometown state matches the lead's state, then call get_flo_athlete for their record. Verify plausibility before matching: the athlete's level and most recent season must fit the lead's grade and experience (a college wrestler with seasons from years ago is NOT a current middle/high schooler with the same name — reject the match). If Flo has nothing plausible, fall back to web search of TrackWrestling.com and school athletics pages. Only report a match if name AND state agree and the level/era is plausible — never guess between same-name wrestlers. Youth coverage is thin; "not found" is a normal outcome. Use the Flo profile URL (or TrackWrestling page) as tw_source_url; tw_record/tw_weight_class/tw_team may come from either source.
+3. If you have a wrestler name: identify their club/team via the Flo profile's team, USA Wrestling club listings, TrackWrestling team pages, or club rosters. Report a club only if the wrestler's name appears on that club's roster or results.
 4. Write a 3-line pre-call brief for the rep, plain text, no markdown. Each line is ONE short sentence (max ~30 words):
    Line 1: wrestler name (or "wrestler name not on form — ask on call"), grade, experience, record/weight/team if found, otherwise "no TrackWrestling record found".
    Line 2: club if found; otherwise the parent's own words from the form message.
@@ -120,10 +122,99 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
+FLO_API = "https://prod-web-api.flowrestling.org/api"
+_FLO_HEADERS = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+
+
+def _flo_search(name: str) -> dict[str, Any]:
+    """FloWrestling athlete search -> compact candidate list."""
+    response = httpx.post(
+        f"{FLO_API}/search",
+        headers=_FLO_HEADERS,
+        json={"offsetPerGroup": 0, "search": name, "limitPerGroup": 20, "entities": ["athlete"]},
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    groups = response.json().get("data") or []
+    items = groups[0].get("items", []) if groups else []
+    return {
+        "candidates": [
+            {
+                "athlete_id": item.get("id"),
+                "name": item.get("title"),
+                "team": item.get("metadata1"),
+                "hometown": item.get("metadata2"),
+                "profile_url": item.get("url"),
+            }
+            for item in items[:20]
+        ]
+    }
+
+
+def _flo_athlete_details(athlete_id: str) -> dict[str, Any]:
+    """FloWrestling athlete profile + win-loss stats, trimmed for the model."""
+    profile = httpx.get(f"{FLO_API}/athletes/{athlete_id}", headers=_FLO_HEADERS, timeout=15.0)
+    profile.raise_for_status()
+    p = profile.json().get("data") or {}
+    out: dict[str, Any] = {
+        "name": f"{p.get('firstName', '')} {p.get('lastName', '')}".strip(),
+        "team": (p.get("team") or {}).get("name"),
+        "level": (p.get("team") or {}).get("level"),
+        "weight_class": p.get("weightClass"),
+        "hometown": p.get("hometown"),
+        "profile_url": f"https://www.flowrestling.org/people/{athlete_id}",
+    }
+    try:
+        stats = httpx.get(f"{FLO_API}/athletes/{athlete_id}/stats", headers=_FLO_HEADERS, timeout=15.0)
+        stats.raise_for_status()
+        st = stats.json().get("data") or {}
+        seasons = [
+            {"season": season.get("season"), "wins": season.get("wins"), "losses": season.get("losses")}
+            for level in st.get("perLevelStats") or []
+            for season in level.get("perSeasonStats") or []
+        ]
+        seasons.sort(key=lambda x: _safe_str(x.get("season")), reverse=True)
+        out["career_record"] = f"{st.get('overallWins')}-{st.get('overallLosses')}"
+        out["last_season_record"] = f"{st.get('lastSeasonWins')}-{st.get('lastSeasonLosses')}"
+        out["seasons"] = seasons[:6]
+    except Exception as exc:
+        out["stats_error"] = str(exc)[:120]
+    return out
+
+
+def _run_flo_tool(name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if name == "search_flo_athletes":
+            return _flo_search(_safe_str(tool_input.get("name")))
+        if name == "get_flo_athlete":
+            return _flo_athlete_details(_safe_str(tool_input.get("athlete_id")))
+        return {"error": f"Unknown tool {name}"}
+    except Exception as exc:
+        return {"error": str(exc)[:200]}
+
+
 def _tools() -> list[dict[str, Any]]:
     return [
         {"type": "web_search_20260209", "name": "web_search", "max_uses": MAX_SEARCHES},
         {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": MAX_FETCHES},
+        {
+            "name": "search_flo_athletes",
+            "description": "Search FloWrestling's athlete database by name. Returns candidates with team, hometown (city, state), and profile URL. Use this FIRST to find the wrestler; disambiguate by state.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "description": "Wrestler full name, e.g. 'Michael Horton'"}},
+                "required": ["name"],
+            },
+        },
+        {
+            "name": "get_flo_athlete",
+            "description": "Get a FloWrestling athlete's profile and win-loss records (career, last season, per-season) by athlete_id from search_flo_athletes. Check the level and season years are plausible for the lead before treating it as a match.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"athlete_id": {"type": "string"}},
+                "required": ["athlete_id"],
+            },
+        },
     ]
 
 
@@ -141,7 +232,10 @@ def research_lead_with_claude(
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": _lead_description(row, rep)}]
     response = None
-    for _ in range(4):  # pause_turn continuations
+    started = time.monotonic()
+    for _ in range(12):  # custom tool calls + pause_turn continuations
+        if time.monotonic() - started > TIMEOUT_SECONDS:
+            raise TimeoutError(f"enrichment exceeded {TIMEOUT_SECONDS:.0f}s")
         response = client.messages.create(
             model=ENRICHMENT_MODEL,
             max_tokens=8000,
@@ -149,9 +243,23 @@ def research_lead_with_claude(
             tools=_tools(),
             messages=messages,
         )
-        if response.stop_reason != "pause_turn":
-            break
-        messages = [messages[0], {"role": "assistant", "content": response.content}]
+        if response.stop_reason == "pause_turn":
+            messages = messages + [{"role": "assistant", "content": response.content}]
+            continue
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if getattr(block, "type", "") == "tool_use":
+                    output = _run_flo_tool(block.name, dict(block.input or {}))
+                    tool_results.append(
+                        {"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(output)[:12000]}
+                    )
+            messages = messages + [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": tool_results},
+            ]
+            continue
+        break
 
     if response is None:
         raise RuntimeError("Enrichment produced no response.")

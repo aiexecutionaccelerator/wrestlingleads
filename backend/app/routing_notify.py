@@ -332,7 +332,7 @@ def brief_lines_for_row(row: pd.Series | dict[str, Any]) -> list[str]:
     lines = [ln.strip() for ln in summary.split("\n") if ln.strip()]
     facts: list[str] = []
     if _safe_str(get("TW Record", "")):
-        rec = f"TrackWrestling: {_safe_str(get('TW Record', ''))}"
+        rec = f"Record: {_safe_str(get('TW Record', ''))}"
         if _safe_str(get("TW Weight Class", "")):
             rec += f" @ {_safe_str(get('TW Weight Class', ''))}"
         if _safe_str(get("TW Team", "")):
@@ -352,7 +352,7 @@ def brief_note_html(row: pd.Series | dict[str, Any]) -> str:
     get = row.get if isinstance(row, dict) else row.get
     items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
     source = _safe_str(get("TW Source URL", ""))
-    source_html = f'<p><a href="{_esc(source)}">TrackWrestling source</a></p>' if source else ""
+    source_html = f'<p><a href="{_esc(source)}">Results source</a></p>' if source else ""
     return f"<p><strong>Pre-call brief (LeadsWrestling)</strong></p><ul>{items}</ul>{source_html}"
 
 
@@ -367,7 +367,7 @@ def _build_brief_html(row: pd.Series | dict[str, Any]) -> str:
     items = "".join(f'<li style="margin:0 0 6px;">{_esc(ln)}</li>' for ln in lines)
     source = _safe_str(get("TW Source URL", ""))
     source_html = (
-        f'<p style="margin:8px 0 0;font-size:12px;"><a href="{_esc(source)}" style="color:{_EMAIL_ACCENT};">TrackWrestling source</a></p>'
+        f'<p style="margin:8px 0 0;font-size:12px;"><a href="{_esc(source)}" style="color:{_EMAIL_ACCENT};">Results source</a></p>'
         if source
         else ""
     )
