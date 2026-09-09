@@ -21,9 +21,10 @@ Trade-off: the notification waits for the research (typically 30–120 s), bound
 | `ENRICHMENT_PROVIDER` (optional) | set to `off` to disable without removing the key |
 | `ENRICHMENT_MODEL` (optional) | default `claude-opus-5`; `claude-sonnet-5` is cheaper |
 | `ENRICHMENT_TIMEOUT_SECONDS` (optional) | default 150 — per-call cap before the notification goes out without a brief |
-| `ENRICHMENT_MAX_SEARCHES` / `ENRICHMENT_MAX_FETCHES` (optional) | default 8 each — cost guardrail |
+| `ENRICHMENT_MAX_SEARCHES` / `ENRICHMENT_MAX_FETCHES` (optional) | defaults 5 / 4 — cost guardrail |
+| `ENRICHMENT_FETCH_MAX_TOKENS` (optional) | default 15000 — caps how much of each fetched web page is ingested |
 
-Cost: web search is $10 per 1,000 searches plus tokens — roughly $0.15–0.25 per lead on Opus.
+Cost: roughly $0.50–0.90 per lead on Opus (page-size caps + prompt caching; ~40% less on `claude-sonnet-5`). Each run logs `est_cost=$…` in Railway logs.
 
 ## Checking it
 

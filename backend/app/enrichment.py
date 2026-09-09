@@ -23,8 +23,9 @@ from .features import _safe_str
 logger = logging.getLogger(__name__)
 
 ENRICHMENT_MODEL = os.getenv("ENRICHMENT_MODEL", "claude-opus-5")
-MAX_SEARCHES = int(os.getenv("ENRICHMENT_MAX_SEARCHES", "8"))
-MAX_FETCHES = int(os.getenv("ENRICHMENT_MAX_FETCHES", "8"))
+MAX_SEARCHES = int(os.getenv("ENRICHMENT_MAX_SEARCHES", "5"))
+MAX_FETCHES = int(os.getenv("ENRICHMENT_MAX_FETCHES", "4"))
+FETCH_MAX_TOKENS = int(os.getenv("ENRICHMENT_FETCH_MAX_TOKENS", "15000"))
 TIMEOUT_SECONDS = float(os.getenv("ENRICHMENT_TIMEOUT_SECONDS", "150"))
 
 ENRICHMENT_FIELDS: tuple[tuple[str, str], ...] = (
@@ -198,7 +199,13 @@ def _run_flo_tool(name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
 def _tools() -> list[dict[str, Any]]:
     return [
         {"type": "web_search_20260209", "name": "web_search", "max_uses": MAX_SEARCHES},
-        {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": MAX_FETCHES},
+        {
+            "type": "web_fetch_20260209",
+            "name": "web_fetch",
+            "max_uses": MAX_FETCHES,
+            # Cap ingested page size — uncapped pages were the main token cost per lead.
+            "max_content_tokens": FETCH_MAX_TOKENS,
+        },
         {
             "name": "search_flo_athletes",
             "description": "Search FloWrestling's athlete database by name. Returns candidates with team, hometown (city, state), and profile URL. Use this FIRST to find the wrestler; disambiguate by state.",
@@ -236,6 +243,7 @@ def research_lead_with_claude(
     response = None
     started = time.monotonic()
     container_id: str | None = None
+    totals = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
     for _ in range(12):  # custom tool calls + pause_turn continuations
         if time.monotonic() - started > TIMEOUT_SECONDS:
             raise TimeoutError(f"enrichment exceeded {TIMEOUT_SECONDS:.0f}s")
@@ -246,8 +254,15 @@ def research_lead_with_claude(
             system=SYSTEM_PROMPT,
             tools=_tools(),
             messages=messages,
+            # Auto-cache the growing prefix so each loop round re-reads instead of re-billing it.
+            extra_body={"cache_control": {"type": "ephemeral"}},
             **extra,
         )
+        usage = getattr(response, "usage", None)
+        totals["input"] += getattr(usage, "input_tokens", 0) or 0
+        totals["output"] += getattr(usage, "output_tokens", 0) or 0
+        totals["cache_read"] += getattr(usage, "cache_read_input_tokens", 0) or 0
+        totals["cache_write"] += getattr(usage, "cache_creation_input_tokens", 0) or 0
         # The 20260209 web tools run in a server-side container; continuations of a
         # turn that used them must carry the container id or the API returns a 400.
         container = getattr(response, "container", None)
@@ -280,16 +295,25 @@ def research_lead_with_claude(
     parsed = _extract_json(text)
     result = {key: _safe_str(parsed.get(key, "")) for key in RESULT_KEYS}
 
-    usage = getattr(response, "usage", None)
-    server_use = getattr(usage, "server_tool_use", None)
+    # Rough list-price estimate so cost per lead is visible in the logs.
+    rates = {"claude-opus-5": (5.0, 25.0), "claude-sonnet-5": (3.0, 15.0)}
+    in_rate, out_rate = rates.get(ENRICHMENT_MODEL, (5.0, 25.0))
+    est_cost = (
+        totals["input"] * in_rate
+        + totals["cache_write"] * in_rate * 1.25
+        + totals["cache_read"] * in_rate * 0.1
+        + totals["output"] * out_rate
+    ) / 1_000_000
     get = row.get if isinstance(row, dict) else row.get
     logger.info(
-        "Enrichment done email=%s confidence=%s searches=%s in=%s out=%s",
+        "Enrichment done email=%s confidence=%s tokens in=%s out=%s cache_read=%s cache_write=%s est_cost=$%.2f",
         _safe_str(get("Email", "")),
         result.get("confidence"),
-        getattr(server_use, "web_search_requests", None),
-        getattr(usage, "input_tokens", None),
-        getattr(usage, "output_tokens", None),
+        totals["input"],
+        totals["output"],
+        totals["cache_read"],
+        totals["cache_write"],
+        est_cost,
     )
     return result
 
@@ -325,6 +349,8 @@ def enrich_lead(row: pd.Series | dict[str, Any], rep: dict[str, Any] | None) -> 
 
 def _short_error(exc: Exception) -> str:
     text = f"{type(exc).__name__}: {exc}"
+    if "usage limits" in text.lower() or "spend limit" in text.lower():
+        return "the Anthropic monthly spend limit has been reached — raise it under Billing limits in console.anthropic.com"
     if "authentication" in text.lower() or "401" in text or "api key" in text.lower():
         return "the Anthropic API key on the server is invalid or missing — fix ANTHROPIC_API_KEY on Railway"
     if "timeout" in text.lower() or "timed out" in text.lower():
