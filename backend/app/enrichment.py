@@ -54,7 +54,7 @@ You receive one lead's form submission. Do the following, using web search and p
    - Buyer type "Wrestler Seeking..." → the name is the wrestler.
    - Buyer type "Parent..." → the name is the parent, unless the message clearly uses that same first name for the athlete (e.g. Name "Jessie Murphy" + message "Jessie wrestled for one year..." → Jessie is the wrestler). Also extract any child's name given in the message, and use the email address as a clue to the parent's name (e.g. "ronandpamfollett@..." → parents are likely Ron and Pam Follett — report as "possibly Ron and Pam Follett"). If the wrestler's name cannot be determined, leave wrestler_name empty — do not guess.
 2. If you have a wrestler name: FIRST call search_flo_athletes (FloWrestling's athlete database — fast and structured). Pick the candidate whose hometown state matches the lead's state, then call get_flo_athlete for their record. Verify plausibility before matching: the athlete's level and most recent season must fit the lead's grade and experience (a college wrestler with seasons from years ago is NOT a current middle/high schooler with the same name — reject the match). If Flo has nothing plausible, fall back to web search of TrackWrestling.com and school athletics pages. Only report a match if name AND state agree and the level/era is plausible — never guess between same-name wrestlers. Youth coverage is thin; "not found" is a normal outcome. Use the Flo profile URL (or TrackWrestling page) as tw_source_url; tw_record/tw_weight_class/tw_team may come from either source.
-3. If you have a wrestler name: identify their club/team via the Flo profile's team, USA Wrestling club listings, TrackWrestling team pages, or club rosters. Report a club only if the wrestler's name appears on that club's roster or results.
+3. If you have a wrestler name: identify their club. The best evidence is get_flo_athlete's teams_in_results — at club and national tournaments the bout "team" IS the wrestler's club (e.g. "Keystone Wrestling Academy"), while school duals list the school; report the non-school team there as the club. Wrestlers often have DUPLICATE Flo profiles — run get_flo_athlete on EVERY search candidate matching the lead's state and merge what you learn (one profile may hold school results, another club results). If Flo shows nothing, fall back to USA Wrestling club listings, TrackWrestling team pages, or club rosters. Report a club only if the wrestler's name appears in that club's results or roster.
 4. Write a 3-line pre-call brief for the rep, plain text, no markdown. Each line is ONE short sentence (max ~30 words):
    Line 1: wrestler name (or "wrestler name not on form — ask on call"), grade, experience, record/weight/team if found, otherwise "no TrackWrestling record found".
    Line 2: club if found; otherwise the parent's own words from the form message.
@@ -182,6 +182,20 @@ def _flo_athlete_details(athlete_id: str) -> dict[str, Any]:
         out["seasons"] = seasons[:6]
     except Exception as exc:
         out["stats_error"] = str(exc)[:120]
+    try:
+        results = httpx.get(f"{FLO_API}/athletes/{athlete_id}/results", headers=_FLO_HEADERS, timeout=15.0)
+        results.raise_for_status()
+        # Clubs usually surface here: at club/national tournaments the bout "team" is the club,
+        # while school duals list the school. Collect the distinct teams this athlete wrestled for.
+        teams: dict[str, dict[str, Any]] = {}
+        for event in results.json().get("data") or []:
+            for bout in event.get("boutResults") or []:
+                team = _safe_str(((bout.get("athlete") or {}).get("team") or {}).get("name"))
+                if team and team not in teams:
+                    teams[team] = {"team": team, "example_event": event.get("name"), "date": _safe_str(bout.get("date"))[:10]}
+        out["teams_in_results"] = list(teams.values())[:6]
+    except Exception as exc:
+        out["results_error"] = str(exc)[:120]
     return out
 
 
