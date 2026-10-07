@@ -28,7 +28,6 @@ from .n8n_notify import n8n_configured, send_n8n_assignment_notification
 from .enrichment import enrich_before_notify, enrichment_enabled
 
 WEST_COAST_STATE_CODES = frozenset({"CA", "OR", "WA", "NV", "AZ", "HI", "AK"})
-WEST_COAST_REP_ID = "eric"
 WEST_COAST_NAME_HINTS = (
     "california",
     "oregon",
@@ -392,25 +391,34 @@ def _try_pick_jake(
 
 
 def _pick_general_rep(row: pd.Series | dict[str, Any], config: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Split the general pool by lead quality: the rep with the higher Lead share gets the
+    better-scoring slice (Beau 3 / Eric 2 → Beau takes the top 3/5 of the pool, Eric the rest)."""
     general = reps_for_bucket(config, "general")
     if not general:
         raise ValueError("No general-pool reps configured.")
+    if len(general) == 1:
+        return general[0], _assigned_reason(general[0])
 
-    west = is_west_coast(row)
-    eric = next((r for r in general if _safe_str(r.get("id")) == WEST_COAST_REP_ID), None)
-    beau = next((r for r in general if _safe_str(r.get("id")) != WEST_COAST_REP_ID), None)
-
-    if west and eric and _rep_under_cap(eric):
-        return eric, _assigned_reason(eric, "West Coast")
-
-    candidates = [r for r in general if r]
+    candidates = [r for r in general if _rep_under_cap(r)] or list(general)
     if len(candidates) == 1:
         return candidates[0], _assigned_reason(candidates[0])
+    ordered = sorted(candidates, key=_rep_weight, reverse=True)
 
+    scores = _routable_scores_from_store()
+    if len(scores) >= int(config.get("min_leads_for_percentile", 15)):
+        _gene_pct, _jake_pct, general_pct, automation_pct = _distribution_pcts(config)
+        total_weight = sum(_rep_weight(r) for r in ordered)
+        score = _score(row)
+        bound = automation_pct + general_pct  # top of the general band
+        for rep in ordered[:-1]:
+            bound -= general_pct * _rep_weight(rep) / total_weight
+            if score >= float(np.percentile(scores, bound)):
+                return rep, _assigned_reason(rep, "general pool — by lead score")
+        return ordered[-1], _assigned_reason(ordered[-1], "general pool — by lead score")
+
+    # Too few leads for percentiles — fall back to weighted least-loaded.
     counts = {r["id"]: count_rep_this_week(_safe_str(r.get("id"))) for r in candidates}
     chosen = _weighted_pick(candidates, counts)
-    if west and eric and _rep_under_cap(eric) and chosen.get("id") != eric.get("id"):
-        return eric, _assigned_reason(eric, "West Coast")
     return chosen, _assigned_reason(chosen)
 
 

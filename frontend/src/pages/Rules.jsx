@@ -341,7 +341,7 @@ export default function Rules() {
                       onChange={(e) => updateRep(index, "weight", e.target.value)}
                     />
                     <span className="field-hint">
-                      Share vs. others in the same pool — 2 means twice the leads of a rep on 1
+                      Share vs. others in the same pool — the higher share also gets the better-scoring leads
                       {sharePercent(rep, rules?.reps) != null
                         ? ` (currently ~${sharePercent(rep, rules.reps)}% of this pool)`
                         : ""}
