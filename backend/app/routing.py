@@ -451,7 +451,7 @@ def _assign_rep_percentile(
             ("automation", "automation", f"Bottom {automation_pct:.0f}% — automation / nurture"),
         ]
 
-    for rep_key, route_bucket, _band_note in fallthrough:
+    for rep_key, route_bucket, band_note in fallthrough:
         if rep_key == "general":
             rep, reason = _pick_general_rep(row, config)
             return {
@@ -462,22 +462,24 @@ def _assign_rep_percentile(
                 "distribution_band": band,
             }
         if rep_key == "jake":
-            jake_rep, spill = _try_pick_jake(row, config)
+            # In percentile mode the band IS the criterion — the lead already ranks in
+            # Jake's share of the inbox, so no extra tier bar; only his weekly cap applies.
+            jake_rep = _first_rep_with_cap(reps_for_bucket(config, "hot_warm"))
             if jake_rep:
                 return {
                     "assigned": True,
                     "rep": jake_rep,
                     "route_bucket": route_bucket,
-                    "route_reason": _assigned_reason(jake_rep),
+                    "route_reason": _assigned_reason(jake_rep, band_note),
                     "distribution_band": band,
                 }
-            if spill and band == "jake":
+            if band == "jake":
                 rep, _ = _pick_general_rep(row, config)
                 return {
                     "assigned": True,
                     "rep": rep,
                     "route_bucket": "general",
-                    "route_reason": _assigned_reason(rep, spill),
+                    "route_reason": _assigned_reason(rep, "Jake at weekly cap — general pool"),
                     "distribution_band": band,
                 }
             continue
