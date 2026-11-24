@@ -105,6 +105,39 @@ export default function DistributionPanel({
       </section>
 
       <section className="dist-section">
+        <h3 className="dist-section-title">Weekend split (Saturday &amp; Sunday, Eastern time)</h3>
+        <p className="dist-section-desc">
+          Optional. On weekends these replace Gene&apos;s and Jake&apos;s shares above — keep the two adding up to the
+          same total as on weekdays so Beau &amp; Eric&apos;s band doesn&apos;t move. Leave blank to use the weekday shares.
+        </p>
+        <div className="dist-table-wrap">
+          <table className="dist-table">
+            <tbody>
+              {[
+                { key: "weekend_gene_pct", who: "Gene", note: "Top band on Sat/Sun" },
+                { key: "weekend_jake_pct", who: "Jake", note: "Next band on Sat/Sun" },
+              ].map((row) => (
+                <tr key={row.key}>
+                  <td className="dist-who">{row.who}</td>
+                  <td className="dist-note">{row.note}</td>
+                  <td className="dist-td-num">
+                    <NumInput
+                      id={`share-${row.key}`}
+                      suffix="%"
+                      min={0}
+                      max={100}
+                      value={rules?.[row.key] ?? ""}
+                      onChange={(e) => onRulesChange(row.key, e.target.value)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="dist-section">
         <h3 className="dist-section-title">Inbox labels &amp; routing rules</h3>
         <p className="dist-section-desc">Same rules for everyone — how leads are labeled and when Gene jumps the line.</p>
         <div className="dist-table-wrap">

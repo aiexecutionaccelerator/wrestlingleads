@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -27,6 +29,7 @@ from .integrations.hubspot import add_enrichment_note, hubspot_configured, sync_
 from .n8n_notify import n8n_configured, send_n8n_assignment_notification
 from .enrichment import enrich_before_notify, enrichment_enabled
 
+WEEKEND_TIMEZONE = ZoneInfo("America/New_York")
 WEST_COAST_STATE_CODES = frozenset({"CA", "OR", "WA", "NV", "AZ", "HI", "AK"})
 WEST_COAST_NAME_HINTS = (
     "california",
@@ -303,10 +306,21 @@ def _rep_under_cap(rep: dict[str, Any]) -> bool:
     return count_rep_this_week(_safe_str(rep.get("id"))) < cap_n
 
 
+def _is_weekend() -> bool:
+    """Saturday or Sunday in the business's timezone, judged at the moment the lead is routed."""
+    return datetime.now(WEEKEND_TIMEZONE).weekday() >= 5
+
+
 def _distribution_pcts(config: dict[str, Any]) -> tuple[float, float, float, float]:
     """Gene top %, Jake next %, general next %, automation bottom % (must sum ~100)."""
     gene = float(config.get("distribution_gene_pct", 10))
     jake = float(config.get("distribution_jake_pct", 20))
+    if _is_weekend():
+        # Optional Sat/Sun split — other reps respond slower on weekends, so Gene can take more.
+        if config.get("weekend_gene_pct") is not None:
+            gene = float(config["weekend_gene_pct"])
+        if config.get("weekend_jake_pct") is not None:
+            jake = float(config["weekend_jake_pct"])
     general = float(config.get("distribution_general_pct", 50))
     automation = float(config.get("distribution_automation_pct", 20))
     total = gene + jake + general + automation

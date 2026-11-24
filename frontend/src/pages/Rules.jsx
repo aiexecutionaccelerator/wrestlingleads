@@ -105,8 +105,11 @@ export default function Rules() {
     setError("");
     setMessage("");
     try {
+      const optionalPct = (value) => (value === "" || value == null ? null : Number(value));
       const payload = {
         ...rules,
+        weekend_gene_pct: optionalPct(rules.weekend_gene_pct),
+        weekend_jake_pct: optionalPct(rules.weekend_jake_pct),
         reps: (rules.reps || []).map((rep) => ({
           ...rep,
           weekly_cap: parseWeeklyCap(rep.weekly_cap),

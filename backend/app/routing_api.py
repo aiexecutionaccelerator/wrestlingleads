@@ -32,6 +32,8 @@ class RoutingRulesUpdate(BaseModel):
     urgent_min_score: float = 75
     jake_min_warm_score: float = 70
     jake_max_consecutive: int = 2
+    weekend_gene_pct: float | None = None
+    weekend_jake_pct: float | None = None
     reps: list[dict[str, Any]]
 
 
